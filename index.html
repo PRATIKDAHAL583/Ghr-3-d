@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="hi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ghar 3D 360° View</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:#14130f;color:#f1eee6;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;flex-direction:column;align-items:center;padding:14px;gap:10px}
+h1{font-size:20px;margin:2px 0 0}
+.sub{margin:0;color:#a9a597;font-size:13px;text-align:center}
+#stage{width:100%;max-width:900px;height:min(62vh,500px);border:1px solid #38362f;border-radius:16px;overflow:hidden;position:relative;touch-action:pan-y;user-select:none;-webkit-user-select:none;cursor:grab;background:#a9c8ea}
+#stage canvas{width:100%!important;height:100%!important;display:block}
+#label{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);background:rgba(0,0,0,.6);padding:5px 12px;border-radius:99px;font-size:13px;pointer-events:none;color:#fff}
+.row{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;width:100%;max-width:900px}
+button{flex:1;min-width:90px;padding:11px 10px;border-radius:10px;border:1px solid #444238;background:#24231e;color:#f1eee6;font-size:14px;cursor:pointer}
+button.on{background:#fb923c;color:#1a1208;border-color:#fb923c;font-weight:600}
+.sl{width:100%;max-width:900px;display:grid;grid-template-columns:70px 1fr 40px;gap:6px;align-items:center;font-size:13px;color:#cfcbbd}
+.sl input{width:100%}
+#ov{position:fixed;inset:0;background:rgba(0,0,0,.92);display:none;align-items:center;justify-content:center;padding:12px;z-index:9}
+#ov.show{display:flex}#ov img{max-width:100%;max-height:100%;border-radius:8px}
+</style>
+</head>
+<body>
+<h1>🏠 Ghar 3D · 360° View</h1>
+<p class="sub">Drag karke ghar ke charo taraf ghumein. Photo ghar ki deewar par lagi hain.</p>
+<div id="stage"><div id="label"></div></div>
+<div class="row">
+ <button id="bl">⟵ Left</button>
+ <button id="auto" class="on">Auto ghumao</button>
+ <button id="br">Right ⟶</button>
+</div>
+<div class="row">
+ <button id="zo">− Door</button><button id="zi">+ Paas</button>
+ <button id="swap">Left ⇄ Right badlo</button>
+ <button id="corner">Corner photo</button>
+</div>
+<div class="sl"><span>Chaudai</span><input id="sw" type="range" min="6" max="14" step="0.1" value="8.8"><span id="vw">8.8</span></div>
+<div class="sl"><span>Gehrai</span><input id="sd" type="range" min="6" max="14" step="0.1" value="10.2"><span id="vd">10.2</span></div>
+<div class="sl"><span>Unchai</span><input id="sh" type="range" min="3" max="9" step="0.1" value="5.6"><span id="vh">5.6</span></div>
+<div id="ov"><img src="corner.jpg" alt="Corner view"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const st=$('stage');
+let renderer;
+try{renderer=new THREE.WebGLRenderer({antialias:true})}catch(e){st.innerHTML='<p style="padding:20px">Is browser mein 3D (WebGL) nahi chal raha. Chrome mein kholein.</p>';throw e}
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+st.appendChild(renderer.domElement);
+const scene=new THREE.Scene();
+const SKY=0xa9c8ea;
+scene.background=new THREE.Color(SKY);
+scene.fog=new THREE.Fog(SKY,45,120);
+const camera=new THREE.PerspectiveCamera(40,1,0.1,300);
+
+const loader=new THREE.TextureLoader();
+const tex=n=>{const t=loader.load('tex_'+n+'.jpg');t.anisotropy=8;return new THREE.MeshBasicMaterial({map:t})};
+const M={front:tex('front'),rear:tex('rear'),left:tex('left'),right:tex('right')};
+const plain=c=>new THREE.MeshBasicMaterial({color:c});
+let swapped=true;
+// BoxGeometry face order: +x, -x, +y, -y, +z, -z
+const house=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),[M.left,M.right,plain(0x5a5a5e),plain(0x333333),M.front,M.rear]);
+scene.add(house);
+const roof=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),plain(0x48484c));scene.add(roof);
+const ground=new THREE.Mesh(new THREE.CircleGeometry(150,48),plain(0x4f7d3b));ground.rotation.x=-Math.PI/2;ground.position.y=-0.02;scene.add(ground);
+const pad=new THREE.Mesh(new THREE.PlaneGeometry(1,1),plain(0xb4b0a6));pad.rotation.x=-Math.PI/2;pad.position.y=0;scene.add(pad);
+
+let w=8.8,d=10.2,h=5.6,az=0,vel=0,auto=true,drag=false,lastX=0,dist=26;
+function build(){
+ house.scale.set(w,h,d);house.position.y=h/2;
+ roof.scale.set(w+0.5,0.3,d+0.5);roof.position.y=h+0.15;
+ pad.scale.set(w+6,d+6,1);
+}
+function setMats(){house.material[0]=swapped?M.left:M.right;house.material[1]=swapped?M.right:M.left}
+function resize(){const W=st.clientWidth,H=st.clientHeight;renderer.setSize(W,H,false);camera.aspect=W/H;camera.updateProjectionMatrix()}
+function place(){
+ const el=0.22,r=dist;
+ camera.position.set(Math.sin(az)*r*Math.cos(el),r*Math.sin(el)+1.4,Math.cos(az)*r*Math.cos(el));
+ camera.lookAt(0,h*0.45,0);
+ const TAU=Math.PI*2,idx=((Math.round(az/(Math.PI/2))%4)+4)%4;
+ $('label').textContent=['Saamne (Front)',swapped?'Left Side':'Right Side','Peeche (Rear)',swapped?'Right Side':'Left Side'][idx];
+}
+function loop(){
+ if(!drag){if(auto)az+=0.004;else{az+=vel;vel*=0.94;if(Math.abs(vel)<0.0001)vel=0}}
+ place();renderer.render(scene,camera);requestAnimationFrame(loop);
+}
+st.addEventListener('pointerdown',e=>{drag=true;lastX=e.clientX;vel=0;st.setPointerCapture(e.pointerId);st.style.cursor='grabbing'});
+st.addEventListener('pointermove',e=>{if(!drag)return;const dx=e.clientX-lastX;lastX=e.clientX;az-=dx*0.008;vel=-dx*0.008});
+const end=()=>{drag=false;st.style.cursor='grab'};
+st.addEventListener('pointerup',end);st.addEventListener('pointercancel',end);
+st.addEventListener('wheel',e=>{e.preventDefault();dist=Math.min(60,Math.max(12,dist+e.deltaY*0.02))},{passive:false});
+function stop(){auto=false;$('auto').classList.remove('on')}
+function snap(k){stop();az=Math.round(az/(Math.PI/2))*(Math.PI/2)+k*Math.PI/2}
+$('bl').onclick=()=>snap(1);$('br').onclick=()=>snap(-1);
+$('auto').onclick=()=>{auto=!auto;$('auto').classList.toggle('on',auto)};
+$('zi').onclick=()=>dist=Math.max(12,dist-4);$('zo').onclick=()=>dist=Math.min(60,dist+4);
+$('swap').onclick=()=>{swapped=!swapped;setMats()};
+$('corner').onclick=()=>$('ov').classList.add('show');
+$('ov').onclick=()=>$('ov').classList.remove('show');
+[['sw','vw',v=>w=v],['sd','vd',v=>d=v],['sh','vh',v=>h=v]].forEach(([s,l,f])=>{$(s).oninput=e=>{const v=+e.target.value;f(v);$(l).textContent=v;build()}});
+addEventListener('resize',resize);
+build();setMats();resize();loop();
+</script>
+</body>
+</html>
